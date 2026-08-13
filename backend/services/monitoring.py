@@ -1395,7 +1395,9 @@ def update_action_item(*, visit_id: str, action_item_id: str, patch: dict[str, A
     return dict(row)
 
 
-def submit_revision(*, revision_id: str, actor_name: str, confirmed: bool) -> dict[str, Any]:
+def submit_revision(
+    *, revision_id: str, actor_name: str, confirmed: bool, actor_member_id: str = ""
+) -> dict[str, Any]:
     if not confirmed:
         raise ValueError("请先勾选 CRA 确认声明，再提交报告")
     timestamp = _now()
@@ -1413,10 +1415,11 @@ def submit_revision(*, revision_id: str, actor_name: str, confirmed: bool) -> di
             """
             UPDATE report_revisions
             SET revision_type = 'formal', status = 'submitted', submitted_at = ?, submitted_by = ?,
-                review_started_at = '', review_started_by = ''
+                submitted_by_member_id = ?, review_started_at = '', review_started_by = '',
+                review_started_by_member_id = ''
             WHERE id = ?
             """,
-            (timestamp, actor_name, revision_id),
+            (timestamp, actor_name, actor_member_id, revision_id),
         )
         connection.execute("UPDATE visits SET status = 'submitted', updated_at = ? WHERE id = ?", (timestamp, visit["id"]))
         _audit(
@@ -1451,7 +1454,7 @@ def _create_related_working_revision(connection, *, revision, timestamp: str) ->
     return {"id": revision_id, "version_number": version_number, "parent_revision_id": revision["id"]}
 
 
-def start_revision_review(*, revision_id: str, reviewer_name: str) -> dict[str, Any]:
+def start_revision_review(*, revision_id: str, reviewer_name: str, reviewer_member_id: str = "") -> dict[str, Any]:
     timestamp = _now()
     with transaction() as connection:
         revision = connection.execute("SELECT * FROM report_revisions WHERE id = ?", (revision_id,)).fetchone()
@@ -1459,11 +1462,12 @@ def start_revision_review(*, revision_id: str, reviewer_name: str) -> dict[str, 
             raise ValueError("未找到报告修订版本")
         if revision["status"] != "submitted":
             raise ValueError("只有待审核的正式报告可以开始审核")
+        _require_distinct_submitter(revision, reviewer_name, action="开始审核")
         visit = _visit_context(connection, revision["visit_id"])
         if not str(revision["review_started_at"] or "").strip():
             connection.execute(
-                "UPDATE report_revisions SET review_started_at = ?, review_started_by = ? WHERE id = ?",
-                (timestamp, reviewer_name.strip(), revision_id),
+                "UPDATE report_revisions SET review_started_at = ?, review_started_by = ?, review_started_by_member_id = ? WHERE id = ?",
+                (timestamp, reviewer_name.strip(), reviewer_member_id, revision_id),
             )
             _audit(
                 connection,
@@ -1566,7 +1570,39 @@ def void_approved_revision(*, revision_id: str, actor_name: str, reason: str) ->
     }
 
 
-def review_revision(*, revision_id: str, action: Literal["comment", "returned", "approved"], message: str, reviewer_name: str, target_key: str = "") -> dict[str, Any]:
+def _require_distinct_submitter(revision, reviewer_name: str, *, action: str) -> None:
+    """BR-20: 提交人与批准人必须为不同用户；不设置同人例外.
+
+    project_members rows are role-scoped (a CRA row and a PM/LM row always
+    have different member_id even for the same real person), so comparing
+    member_id would never catch the case BR-20 actually targets: one person
+    registered under two role hats. Compare the human-readable submitter/
+    reviewer identity instead.
+    """
+    submitted_by = str(revision["submitted_by"] or "").strip()
+    if submitted_by and submitted_by == reviewer_name.strip():
+        raise ValueError(f"提交人与批准人须为不同用户，当前操作人与提交人「{submitted_by}」相同，不能{action}")
+
+
+def _require_no_open_comments(connection, revision_id: str) -> None:
+    """FR-11: 批准前必须确认无未处理审核意见."""
+    open_count = connection.execute(
+        "SELECT COUNT(*) AS count FROM review_comments WHERE revision_id = ? AND status = 'open' AND comment_type = 'pm_lm_review'",
+        (revision_id,),
+    ).fetchone()["count"]
+    if open_count:
+        raise ValueError(f"存在 {open_count} 条未处理的审核意见，须先由 CRA 处置完毕才能批准")
+
+
+def review_revision(
+    *,
+    revision_id: str,
+    action: Literal["comment", "returned", "approved"],
+    message: str,
+    reviewer_name: str,
+    target_key: str = "",
+    reviewer_member_id: str = "",
+) -> dict[str, Any]:
     timestamp = _now()
     with transaction() as connection:
         revision = connection.execute("SELECT * FROM report_revisions WHERE id = ?", (revision_id,)).fetchone()
@@ -1575,10 +1611,13 @@ def review_revision(*, revision_id: str, action: Literal["comment", "returned", 
         visit = _visit_context(connection, revision["visit_id"])
         if revision["status"] != "submitted":
             raise ValueError("报告尚未提交，暂不能审核")
+        if action == "approved":
+            _require_distinct_submitter(revision, reviewer_name, action="批准")
+            _require_no_open_comments(connection, revision_id)
         if not str(revision["review_started_at"] or "").strip():
             connection.execute(
-                "UPDATE report_revisions SET review_started_at = ?, review_started_by = ? WHERE id = ?",
-                (timestamp, reviewer_name.strip(), revision_id),
+                "UPDATE report_revisions SET review_started_at = ?, review_started_by = ?, review_started_by_member_id = ? WHERE id = ?",
+                (timestamp, reviewer_name.strip(), reviewer_member_id, revision_id),
             )
             _audit(
                 connection,
@@ -1599,11 +1638,17 @@ def review_revision(*, revision_id: str, action: Literal["comment", "returned", 
             (comment_id, revision_id, target_key, action, message.strip() or "未填写补充说明", reviewer_name.strip(), timestamp),
         )
         if action == "returned":
-            connection.execute("UPDATE report_revisions SET status = 'returned' WHERE id = ?", (revision_id,))
+            connection.execute(
+                "UPDATE report_revisions SET status = 'returned', decided_by_member_id = ? WHERE id = ?",
+                (reviewer_member_id, revision_id),
+            )
             working_revision = _create_related_working_revision(connection, revision=revision, timestamp=timestamp)
             connection.execute("UPDATE visits SET status = 'returned', updated_at = ? WHERE id = ?", (timestamp, visit["id"]))
         elif action == "approved":
-            connection.execute("UPDATE report_revisions SET status = 'approved' WHERE id = ?", (revision_id,))
+            connection.execute(
+                "UPDATE report_revisions SET status = 'approved', decided_by_member_id = ? WHERE id = ?",
+                (reviewer_member_id, revision_id),
+            )
             connection.execute("UPDATE visits SET status = 'approved', updated_at = ? WHERE id = ?", (timestamp, visit["id"]))
         _audit(
             connection,

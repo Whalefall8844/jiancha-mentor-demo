@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 
@@ -1825,10 +1825,15 @@ def get_revision_handover_package(revision_id: str):
 
 
 @app.post("/api/revisions/{revision_id}/submit")
-def post_revision_submit(revision_id: str, payload: SubmitRequest) -> dict[str, Any]:
+def post_revision_submit(revision_id: str, payload: SubmitRequest, actor: Actor = Depends(get_actor)) -> dict[str, Any]:
     _revision_or_404(revision_id)
     try:
-        return submit_revision(revision_id=revision_id, actor_name=payload.cra_name, confirmed=payload.confirmed)
+        return submit_revision(
+            revision_id=revision_id,
+            actor_name=actor.display_name or payload.cra_name,
+            actor_member_id=actor.member_id,
+            confirmed=payload.confirmed,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -1862,25 +1867,35 @@ def post_revision_void(revision_id: str, payload: RevisionVoidRequest) -> dict[s
 
 
 @app.post("/api/revisions/{revision_id}/review-start")
-def post_revision_review_start(revision_id: str, payload: ReviewStartRequest) -> dict[str, Any]:
+def post_revision_review_start(
+    revision_id: str, payload: ReviewStartRequest, actor: Actor = Depends(get_actor)
+) -> dict[str, Any]:
     revision = _revision_or_404(revision_id)
     try:
-        updated = start_revision_review(revision_id=revision_id, reviewer_name=payload.reviewer_name)
+        updated = start_revision_review(
+            revision_id=revision_id,
+            reviewer_name=actor.display_name or payload.reviewer_name,
+            reviewer_member_id=actor.member_id,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"revision": updated, "workspace": _legacy_workspace(_workspace_or_404(revision["visit_id"]))}
 
 
 @app.post("/api/revisions/{revision_id}/reviews", status_code=201)
-def post_revision_review(revision_id: str, payload: ReviewCreate) -> dict[str, Any]:
+def post_revision_review(revision_id: str, payload: ReviewCreate, actor: Actor = Depends(get_actor)) -> dict[str, Any]:
     _revision_or_404(revision_id)
-    return review_revision(
-        revision_id=revision_id,
-        action=payload.action,
-        message=payload.message,
-        reviewer_name=payload.reviewer_name,
-        target_key=payload.target_key,
-    )
+    try:
+        return review_revision(
+            revision_id=revision_id,
+            action=payload.action,
+            message=payload.message,
+            reviewer_name=actor.display_name or payload.reviewer_name,
+            reviewer_member_id=actor.member_id,
+            target_key=payload.target_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/revisions/{revision_id}/specialist-comments", status_code=201)
