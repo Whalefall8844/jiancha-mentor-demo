@@ -31,7 +31,6 @@ from .models import (
     CurrentRoleUpdate,
     EscalationCreate,
     EscalationDisposition,
-    HandoverCreate,
     HistoricalActionFollowUpCreate,
     ImportBatchCommit,
     OfflineDraftSync,
@@ -184,7 +183,6 @@ from .services.continuity import (
     bulk_complete_visit_tasks,
     create_administrator_visit_handover,
     create_escalation,
-    create_visit_handover,
     dispose_escalation,
     get_visit_operations,
     get_visit_sync_token,
@@ -1521,15 +1519,6 @@ def post_visit_escalation_disposition(
     _workspace_or_404(visit_id)
     try:
         return dispose_escalation(visit_id=visit_id, escalation_id=escalation_id, **payload.model_dump())
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@app.post("/api/visits/{visit_id}/handovers", status_code=201)
-def post_visit_handover(visit_id: str, payload: HandoverCreate) -> dict[str, Any]:
-    _workspace_or_404(visit_id)
-    try:
-        return create_visit_handover(visit_id=visit_id, **payload.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

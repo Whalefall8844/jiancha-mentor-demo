@@ -236,7 +236,6 @@ ROUTE_ROLES: dict[tuple[str, str], set[str]] = {
     ("POST", "/api/visits/{visit_id}/sync-conflicts/{conflict_id}/resolve"): {"CRA"},
     ("POST", "/api/visits/{visit_id}/escalations"): {"CRA"},
     ("POST", "/api/visits/{visit_id}/escalations/{escalation_id}/disposition"): {"PM_LM"},
-    ("POST", "/api/visits/{visit_id}/handovers"): {"PROJECT_ADMIN"},
     ("POST", "/api/visits/{visit_id}/administrator-handovers"): {"PROJECT_ADMIN"},
     ("POST", "/api/visits/{visit_id}/handovers/{handover_id}/recipient-confirmation"): {"CRA"},
     ("POST", "/api/visits/{visit_id}/suggestions/{suggestion_id}/decision"): {"CRA"},

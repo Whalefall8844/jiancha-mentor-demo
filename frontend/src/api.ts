@@ -276,8 +276,6 @@ export const api = {
     request<OperationEscalation>(`/api/visits/${visitId}/escalations`, { method: 'POST', body: JSON.stringify(payload) }),
   disposeEscalation: (visitId: string, escalationId: string, payload: { action: 'acknowledge' | 'close'; note?: string; actor_name: string }) =>
     request<OperationEscalation>(`/api/visits/${visitId}/escalations/${escalationId}/disposition`, { method: 'POST', body: JSON.stringify(payload) }),
-  createHandover: (visitId: string, payload: { from_member_id?: string; to_member_id: string; note: string; actor_name: string }) =>
-    request<VisitHandover>(`/api/visits/${visitId}/handovers`, { method: 'POST', body: JSON.stringify(payload) }),
   createAdministratorHandover: (visitId: string, payload: { from_member_id: string; to_member_id: string; reason: string; authorization_basis: string; note: string; actor_name: string }) =>
     request<VisitHandover>(`/api/visits/${visitId}/administrator-handovers`, { method: 'POST', body: JSON.stringify(payload) }),
   acknowledgeAdministratorHandover: (visitId: string, handoverId: string, payload: { acknowledgement_note: string; actor_name: string }) =>

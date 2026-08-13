@@ -411,13 +411,6 @@ class EscalationDisposition(BaseModel):
     actor_name: str = Field(default="PM/LM 审核人", min_length=1, max_length=80)
 
 
-class HandoverCreate(BaseModel):
-    from_member_id: str | None = None
-    to_member_id: str = Field(min_length=1)
-    note: str = Field(default="", max_length=3000)
-    actor_name: str = Field(default="演示 CRA", max_length=80)
-
-
 class AdministratorHandoverCreate(BaseModel):
     from_member_id: str = Field(min_length=1)
     to_member_id: str = Field(min_length=1)

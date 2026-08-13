@@ -87,7 +87,6 @@ export function CollaborationPage({ state, onStateChange, onNotice }: Collaborat
   const [operations, setOperations] = useState<VisitOperations | null>(null)
   const [busy, setBusy] = useState(false)
   const [memberDraft, setMemberDraft] = useState<{ display_name: string; role: UserRole }>({ display_name: '', role: 'CRA' })
-  const [handoverDraft, setHandoverDraft] = useState({ to_member_id: '', note: '' })
   const [administratorHandoverDraft, setAdministratorHandoverDraft] = useState({ from_member_id: '', to_member_id: '', reason: '', authorization_basis: '', note: '' })
   const [handoverAcknowledgements, setHandoverAcknowledgements] = useState<Record<string, string>>({})
   const [escalationDraft, setEscalationDraft] = useState({ action_item_id: '', severity: 'high' as 'high' | 'urgent' })
@@ -147,30 +146,6 @@ export function CollaborationPage({ state, onStateChange, onNotice }: Collaborat
       onNotice(status === 'inactive' ? '成员已停用；其历史操作与归属保持可追溯。' : '成员已恢复为有效项目成员。')
     } catch (error) {
       onNotice(error instanceof Error ? error.message : '更新成员状态失败', 'error')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const createHandover = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!isCRA) {
-      onNotice('CRA 交接由当前负责 CRA 发起。', 'error')
-      return
-    }
-    if (!visitId || !handoverDraft.to_member_id) {
-      onNotice('请选择接收本次访视的 CRA。', 'error')
-      return
-    }
-    try {
-      setBusy(true)
-      const origin = state.project_members.find((member) => member.display_name === state.visit.cra_name && member.role === 'CRA')
-      await api.createHandover(visitId, { from_member_id: origin?.id, ...handoverDraft, actor_name: state.visit.cra_name })
-      setHandoverDraft({ to_member_id: '', note: '' })
-      await refresh()
-      onNotice('本次访视已完成 CRA 交接，后续记录将显示新的负责 CRA。')
-    } catch (error) {
-      onNotice(error instanceof Error ? error.message : '访视交接失败', 'error')
     } finally {
       setBusy(false)
     }
@@ -359,11 +334,7 @@ export function CollaborationPage({ state, onStateChange, onNotice }: Collaborat
 
         <section className="section-block handover-panel">
           <div className="section-header compact-header"><div><h2>CRA 交接</h2><p>交接后当前访视负责人会更新为接收 CRA，原始记录和 Word 版本保持不变。</p></div></div>
-          {isCRA ? <form className="handover-form" onSubmit={createHandover}>
-            <label>接收 CRA<select required value={handoverDraft.to_member_id} onChange={(event) => setHandoverDraft({ ...handoverDraft, to_member_id: event.target.value })}><option value="">请选择</option>{craMembers.filter((member) => member.display_name !== state.visit.cra_name).map((member) => <option key={member.id} value={member.id}>{member.display_name}</option>)}</select></label>
-            <label>交接说明<textarea value={handoverDraft.note} onChange={(event) => setHandoverDraft({ ...handoverDraft, note: event.target.value })} placeholder="例如：请继续跟进已建立的 ICF 归档行动项。" /></label>
-            <button type="submit" className="button primary" disabled={busy || craMembers.length < 2}>完成访视交接</button>
-          </form> : isProjectAdmin ? <form className="handover-form administrator-handover-form" onSubmit={createAdministratorHandover}>
+          {isProjectAdmin ? <form className="handover-form administrator-handover-form" onSubmit={createAdministratorHandover}>
             <div className="handover-form-heading"><strong>管理员授权交接</strong><span>仅用于原 CRA 离职、长期缺席或项目重分配；接收 CRA 仍需重新核对并本人提交。</span></div>
             <label>原负责 CRA<select required value={administratorHandoverDraft.from_member_id} onChange={(event) => setAdministratorHandoverDraft({ ...administratorHandoverDraft, from_member_id: event.target.value })}><option value="">请选择</option>{administratorOriginOptions.map((member) => <option key={member.id} value={member.id}>{member.display_name}{member.status === 'inactive' ? '（已停用）' : ''}</option>)}</select></label>
             <label>接收 CRA<select required value={administratorHandoverDraft.to_member_id} onChange={(event) => setAdministratorHandoverDraft({ ...administratorHandoverDraft, to_member_id: event.target.value })}><option value="">请选择</option>{craMembers.filter((member) => member.id !== administratorHandoverDraft.from_member_id).map((member) => <option key={member.id} value={member.id}>{member.display_name}</option>)}</select></label>
@@ -371,7 +342,7 @@ export function CollaborationPage({ state, onStateChange, onNotice }: Collaborat
             <label>已批准的授权依据<textarea required value={administratorHandoverDraft.authorization_basis} onChange={(event) => setAdministratorHandoverDraft({ ...administratorHandoverDraft, authorization_basis: event.target.value })} placeholder="例如：项目授权单 PA-2026-018，批准日期 2026-08-12。" /></label>
             <label>补充说明（可选）<textarea value={administratorHandoverDraft.note} onChange={(event) => setAdministratorHandoverDraft({ ...administratorHandoverDraft, note: event.target.value })} placeholder="记录需要重点复核的未提交工作。" /></label>
             <button type="submit" className="button primary" disabled={busy || craMembers.length === 0}>依据授权完成交接</button>
-          </form> : <div className="role-readonly-banner">当前角色可查看交接历史；只有当前负责 CRA 可以主动交接，离职或重分配场景由项目管理员依据授权处理。</div>}
+          </form> : <div className="role-readonly-banner">当前角色可查看交接历史；未提交工作的 CRA 交接仅能由项目管理员依据已批准授权发起，接收 CRA 需在下方重新核对并确认接收。</div>}
           <div className="handover-list">{operations?.handovers.length ? operations.handovers.map((item) => <article key={item.id} className={`handover-row ${item.handover_mode} ${item.status}`}><div className="handover-heading"><strong>{item.from_member_name || '原负责 CRA'} → {item.to_member_name}</strong><span className={`handover-status ${item.status}`}>{handoverStatusLabel[item.status]}</span></div><small>{handoverModeLabel[item.handover_mode]} · {item.created_at}</small>{item.reason && <p>交接原因：{item.reason}</p>}{item.authorization_basis && <p className="handover-authority">授权依据：{item.authorization_basis}</p>}{item.note && <p>{item.note}</p>}{item.acknowledged_at && <p className="handover-confirmed">接收确认：{item.acknowledged_by || item.to_member_name} · {item.acknowledged_at}<br />{item.acknowledgement_note || '未填写确认说明'}</p>}{isCRA && item.handover_mode === 'administrator_authorized' && item.status === 'pending_recipient_confirmation' && item.to_member_name === state.visit.cra_name && <div className="handover-acknowledgement"><label>重新核对说明<textarea value={handoverAcknowledgements[item.id] ?? ''} onChange={(event) => setHandoverAcknowledgements((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="例如：已重新核对当前工作记录、待处理行动项和报告状态，确认接收后续责任。" /></label><button type="button" className="button secondary" disabled={busy} onClick={() => void acknowledgeAdministratorHandover(item)}>确认已重新核对</button></div>}</article>) : <div className="empty-state inline"><span>暂无本访视的 CRA 交接记录。</span></div>}</div>
         </section>
       </div>
