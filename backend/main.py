@@ -1736,6 +1736,8 @@ async def post_visit_attachment(
     action_item_id: str = Form(default=""),
     description: str = Form(default=""),
     actor_name: str = Form(default="演示 CRA"),
+    deidentification_ack: bool = Form(default=False),
+    actor: Actor = Depends(get_actor),
 ) -> dict[str, Any]:
     _workspace_or_404(visit_id)
     try:
@@ -1744,8 +1746,10 @@ async def post_visit_attachment(
             file_name=file.filename or "evidence.bin",
             content=await file.read(),
             description=description,
-            created_by=actor_name,
+            created_by=actor.display_name or actor_name,
+            created_by_member_id=actor.member_id,
             action_item_id=action_item_id or None,
+            deidentification_ack=deidentification_ack,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

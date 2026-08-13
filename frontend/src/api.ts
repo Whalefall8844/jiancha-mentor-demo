@@ -308,12 +308,13 @@ export const api = {
   createHistoricalActionFollowUp: (visitId: string, sourceActionItemId: string, actorName: string) =>
     request<ActionItem>(`/api/visits/${visitId}/historical-actions/${sourceActionItemId}/follow-up`, { method: 'POST', body: JSON.stringify({ actor_name: actorName }) }),
   listActionItems: (visitId: string) => request<{ items: ActionItem[] }>(`/api/visits/${visitId}/action-items`),
-  uploadAttachment: (visitId: string, file: File, actionItemId = '', description = '') => {
+  uploadAttachment: (visitId: string, file: File, actionItemId = '', description = '', deidentificationAck = false) => {
     const body = new FormData()
     body.append('file', file)
     body.append('action_item_id', actionItemId)
     body.append('description', description)
     body.append('actor_name', '演示 CRA')
+    body.append('deidentification_ack', deidentificationAck ? 'true' : 'false')
     return upload<Attachment>(`/api/visits/${visitId}/attachments`, body)
   },
   generateVisitRevision: (visitId: string, createdBy: string) =>

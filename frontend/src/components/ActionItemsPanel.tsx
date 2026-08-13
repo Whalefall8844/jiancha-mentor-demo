@@ -35,6 +35,7 @@ export function ActionItemsPanel({ state, onStateChange, onNotice, focusActionId
   const [statusDrafts, setStatusDrafts] = useState<Record<string, ActionItem['status']>>({})
   const [statusNotes, setStatusNotes] = useState<Record<string, string>>({})
   const [files, setFiles] = useState<Record<string, File | null>>({})
+  const [deidentificationAcks, setDeidentificationAcks] = useState<Record<string, boolean>>({})
   const [busy, setBusy] = useState(false)
   const visitId = state.visit.id
   const canManage = state.current_role === 'CRA'
@@ -132,10 +133,15 @@ export function ActionItemsPanel({ state, onStateChange, onNotice, focusActionId
       onNotice('请先选择需要留存的整改证据文件。', 'error')
       return
     }
+    if (!deidentificationAcks[action.id]) {
+      onNotice('请先勾选“本附件已脱敏”声明后再上传。', 'error')
+      return
+    }
     try {
       setBusy(true)
-      await api.uploadAttachment(visitId, file, action.id, `行动项证据：${action.title}`)
+      await api.uploadAttachment(visitId, file, action.id, `行动项证据：${action.title}`, true)
       setFiles((current) => ({ ...current, [action.id]: null }))
+      setDeidentificationAcks((current) => ({ ...current, [action.id]: false }))
       await refreshClarifications()
       onNotice(`已留存“${file.name}”作为行动项证据。`)
     } catch (error) {
@@ -289,7 +295,8 @@ export function ActionItemsPanel({ state, onStateChange, onNotice, focusActionId
                 {evidence.length === 0 ? <span>暂未上传附件</span> : evidence.map((attachment) => <a key={attachment.id} className="evidence-link" href={`/api/attachments/${attachment.id}/download`} target="_blank" rel="noreferrer">{attachment.file_name}<small>{attachment.created_at}</small></a>)}
               </div>
               {(action.status !== 'closed' || closureNeedsBasis) && canManage && <div className="action-close-row">
-                <label className="action-file-field">上传关闭证据<input type="file" onChange={(event) => setFiles({ ...files, [action.id]: event.target.files?.[0] ?? null })} /><small>{files[action.id]?.name ?? '尚未选择文件'}</small></label>
+                <label className="action-file-field">上传关闭证据<input type="file" accept=".pdf,.png,.jpg,.jpeg,.txt,.csv,.eml,.docx,.xlsx" onChange={(event) => setFiles({ ...files, [action.id]: event.target.files?.[0] ?? null })} /><small>{files[action.id]?.name ?? '尚未选择文件'}</small></label>
+                <label className="deidentification-ack"><input type="checkbox" checked={deidentificationAcks[action.id] ?? false} onChange={(event) => setDeidentificationAcks({ ...deidentificationAcks, [action.id]: event.target.checked })} />本附件已脱敏，不含直接身份信息、源文件或非盲数据</label>
                 <button type="button" className="button quiet" disabled={busy} onClick={() => void uploadEvidence(action)}>留存附件</button>
                 <label className="closure-field">关闭说明<textarea value={closureNotes[action.id] ?? ''} onChange={(event) => setClosureNotes({ ...closureNotes, [action.id]: event.target.value })} placeholder="例如：已核对中心整改材料，符合关闭条件。" /></label>
                 <button type="button" className="button primary" disabled={busy} onClick={() => void closeAction(action)}>{closureNeedsBasis ? '补充关闭依据' : 'CRA 确认关闭'}</button>
