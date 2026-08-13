@@ -465,6 +465,14 @@ def create_visit(
             resolved_visit_date,
             connection=connection,
         )
+        if eligibility_snapshot is None:
+            raise ValueError(
+                "创建访视前须由 QA/临床运营完成并批准本项目在监查活动结束日期有效的 MVP／盲态适用性评估"
+            )
+        boundary = eligibility_snapshot.get("boundary") or {}
+        if not boundary.get("matches_local_mvp_boundary", False):
+            reasons = "；".join(boundary.get("boundary_notes") or []) or "超出本地 MVP 边界"
+            raise ValueError(f"项目当前有效的适用性评估超出本地 MVP 边界，禁止创建访视：{reasons}")
         master_data = resolve_frozen_master_data(
             project_id=project_id,
             site_id=site_id,

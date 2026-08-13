@@ -293,9 +293,9 @@ class ActorAuthMiddleware:
         self.app = app
         self.fastapi_app = fastapi_app
 
-    def _match_route(self, scope: Scope) -> tuple[str, str] | None:
+    def _match_route(self, scope: Scope) -> tuple[str, str, dict[str, Any]] | None:
         for route in self.fastapi_app.router.routes:
-            match, _child_scope = route.matches(scope)
+            match, child_scope = route.matches(scope)
             if match == Match.FULL:
                 methods = getattr(route, "methods", None) or set()
                 path = getattr(route, "path", None)
@@ -303,7 +303,7 @@ class ActorAuthMiddleware:
                     continue
                 method = scope.get("method", "GET")
                 if method in methods:
-                    return method, path
+                    return method, path, dict(child_scope.get("path_params") or {})
         return None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -312,17 +312,24 @@ class ActorAuthMiddleware:
             return
 
         matched = self._match_route(scope)
-        if matched is None or matched in PUBLIC_ROUTES:
+        if matched is None or (matched[0], matched[1]) in PUBLIC_ROUTES:
             await self.app(scope, receive, send)
             return
 
-        method, path_template = matched
+        method, path_template, path_params = matched
+        route_key = (method, path_template)
         request = Request(scope, receive=receive)
         try:
             actor = resolve_actor(request)
-            required_roles = ROUTE_ROLES.get(matched)
+            required_roles = ROUTE_ROLES.get(route_key)
             if required_roles is not None:
                 require_roles(actor, required_roles, action=f"{method} {path_template}")
+            # Defense-in-depth cross-project isolation (PRD §13 "MVP 默认采用单租户内
+            # 项目级隔离"): any route whose path directly names {project_id} gets a
+            # baseline check that the acting identity actually belongs to that
+            # project, independent of the more specific ROUTE_ROLES checks above.
+            if "project_id" in path_params:
+                require_project_scope(actor, str(path_params["project_id"]))
         except AuthError as exc:
             await _write_denial(send, exc.status_code, str(exc.detail), path_template)
             _record_denied_access(path_template, method)

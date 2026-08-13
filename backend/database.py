@@ -1285,6 +1285,7 @@ def reset_database() -> None:
                 "visit_tasks",
                 "visits",
                 "project_members",
+                "project_eligibility_assessments",
                 "rule_packs",
                 "template_field_slots",
                 "template_mappings",

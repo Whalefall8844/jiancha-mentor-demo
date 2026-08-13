@@ -253,6 +253,32 @@ def ensure_seed_data() -> None:
                 (subject_id, site_id, code, status, created_at, created_at),
             )
 
+        for project_id in ("project-ua007", "project-cm102"):
+            connection.execute(
+                """
+                INSERT INTO project_eligibility_assessments (
+                    id, project_id, assessment_version, assessment_scope, blinding_mode,
+                    processes_nonblind_data, contains_direct_identifiers, requires_full_blind_separation,
+                    uses_editable_docx_only, requires_ctms_etmf_integration, assessment_note,
+                    effective_from, effective_to, status, submitted_at, submitted_by,
+                    reviewed_at, reviewed_by, review_note, created_at, updated_at
+                ) VALUES (?, ?, 1, 'IMV_DOCX', 'open_label', 0, 0, 0, 1, 0, ?, ?, '', 'approved', ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"{project_id}-eligibility-1",
+                    project_id,
+                    "演示数据：仅处理 CRA 已授权的盲态可见信息，不涉及非盲数据或直接身份信息。",
+                    "2026-01-01",
+                    created_at,
+                    "演示管理员",
+                    created_at,
+                    "演示 QA/临床运营",
+                    "演示数据默认批准，便于直接体验访视创建后续流程。",
+                    created_at,
+                    created_at,
+                ),
+            )
+
         _insert_members(connection, "project-ua007", [("演示 CRA", "CRA"), ("演示 PM", "PM_LM"), ("演示管理员", "PROJECT_ADMIN"), ("演示医学监察/DM", "MEDICAL_DATA_REVIEWER"), ("演示 QA/临床运营", "QA_CLINICAL_OPS"), ("备用 CRA", "CRA")], created_at)
         _insert_members(connection, "project-cm102", [("演示 CRA", "CRA"), ("演示 PM", "PM_LM"), ("演示管理员", "PROJECT_ADMIN"), ("演示医学监察/DM", "MEDICAL_DATA_REVIEWER"), ("演示 QA/临床运营", "QA_CLINICAL_OPS")], created_at)
 
