@@ -1155,3 +1155,42 @@ def list_export_events(visit_id: str) -> list[dict[str, Any]]:
             (visit_id,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def compute_confirmed_field_hash(visit_id: str, connection=None) -> str:
+    """PRD 9.9/14: detect a confirmed-field/language change between report generation and
+    submission (报告生成后字段哈希与确认字段不一致：生成失败). Hashes every active confirmed
+    field plus every accepted/edited language suggestion's displayed text, so any CRA
+    confirmation or language decision made after the last generation invalidates the hash.
+    """
+    import hashlib
+    import json as _json
+
+    def _read(conn) -> str:
+        field_rows = conn.execute(
+            """
+            SELECT target_table, field_key, value, decision, decision_reason, confirmed_at
+            FROM confirmed_fields WHERE visit_id = ? AND is_active = 1
+            ORDER BY target_table, field_key, id
+            """,
+            (visit_id,),
+        ).fetchall()
+        language_rows = conn.execute(
+            """
+            SELECT confirmed_field_id, status, final_text, decided_at
+            FROM language_suggestions
+            WHERE visit_id = ? AND status IN ('accepted', 'edited')
+            ORDER BY confirmed_field_id, id
+            """,
+            (visit_id,),
+        ).fetchall()
+        payload = {
+            "fields": [dict(row) for row in field_rows],
+            "language": [dict(row) for row in language_rows],
+        }
+        return hashlib.sha256(_json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+    if connection is not None:
+        return _read(connection)
+    with get_connection() as local_connection:
+        return _read(local_connection)

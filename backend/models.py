@@ -61,6 +61,7 @@ class ReviewCreate(BaseModel):
     message: str = Field(default="", max_length=2000)
     reviewer_name: str = Field(default="PM/LM 审核人", max_length=80)
     target_key: str = Field(default="", max_length=120)
+    idempotency_key: str = Field(default="", max_length=120)
 
 
 class SpecialistReviewCreate(BaseModel):
@@ -73,6 +74,7 @@ class SpecialistReviewCreate(BaseModel):
 class SubmitRequest(BaseModel):
     cra_name: str = Field(default="演示 CRA", max_length=80)
     confirmed: bool = False
+    idempotency_key: str = Field(default="", max_length=120)
 
 
 class RevisionWithdrawRequest(BaseModel):
@@ -318,6 +320,7 @@ class SubjectCodesUpdate(BaseModel):
 
 class ReportGenerateRequest(BaseModel):
     created_by: str = Field(default="演示 CRA", max_length=80)
+    idempotency_key: str = Field(default="", max_length=120)
 
 
 class TemplateMappingPatch(BaseModel):

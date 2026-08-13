@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from ..database import get_connection, transaction
 from ..repositories.visits import (
+    compute_confirmed_field_hash,
     create_audit_event,
     create_report_revision,
     list_revisions,
@@ -15,7 +17,7 @@ from .readiness import evaluate_report_readiness, readiness_error
 from .workspace import build_workspace
 
 
-def generate_revision(*, visit_id: str, created_by: str) -> dict[str, Any]:
+def generate_revision(*, visit_id: str, created_by: str, idempotency_key: str = "") -> dict[str, Any]:
     """Generate a real DOCX from one frozen visit workspace and store its revision record."""
     workspace = build_workspace(visit_id)
     if workspace is None:
@@ -24,6 +26,19 @@ def generate_revision(*, visit_id: str, created_by: str) -> dict[str, Any]:
     latest_revision = next(iter(revisions), None)
     if latest_revision and latest_revision["status"] in {"submitted", "approved"}:
         raise ValueError("当前报告已提交审核或已批准，不能重新生成；请等待 PM/LM 退回后再创建修订版本")
+
+    normalized_key = idempotency_key.strip()
+    if normalized_key:
+        with get_connection() as connection:
+            existing = connection.execute(
+                "SELECT id FROM report_revisions WHERE visit_id = ? AND generation_idempotency_key = ?",
+                (visit_id, normalized_key),
+            ).fetchone()
+        if existing is not None:
+            from ..repositories.visits import get_revision
+
+            return get_revision(existing["id"]) or {}
+
     readiness = evaluate_report_readiness(visit_id)
     if not readiness["ready"]:
         raise ValueError(readiness_error(readiness))
@@ -41,6 +56,7 @@ def generate_revision(*, visit_id: str, created_by: str) -> dict[str, Any]:
     version_number = str(draft_shell["version_number"]) if draft_shell else next_revision_number(visit_id)
     output_path = generate_report(workspace, revision_number=version_number)
     file_hash = hashlib.sha256(output_path.read_bytes()).hexdigest()
+    confirmed_field_hash = compute_confirmed_field_hash(visit_id)
     if draft_shell:
         revision = update_working_revision_file(
             revision_id=draft_shell["id"],
@@ -48,6 +64,12 @@ def generate_revision(*, visit_id: str, created_by: str) -> dict[str, Any]:
             file_path=str(output_path),
             file_hash=file_hash,
         )
+        if normalized_key or confirmed_field_hash:
+            with transaction() as connection:
+                connection.execute(
+                    "UPDATE report_revisions SET generation_idempotency_key = ?, confirmed_field_hash = ? WHERE id = ?",
+                    (normalized_key, confirmed_field_hash, revision["id"]),
+                )
     else:
         parent_revision_id = latest_revision["id"] if latest_revision and latest_revision.get("status") in {"returned", "withdrawn"} else None
         revision = create_report_revision(
@@ -58,6 +80,11 @@ def generate_revision(*, visit_id: str, created_by: str) -> dict[str, Any]:
             file_hash=file_hash,
             parent_revision_id=parent_revision_id,
         )
+        with transaction() as connection:
+            connection.execute(
+                "UPDATE report_revisions SET generation_idempotency_key = ?, confirmed_field_hash = ? WHERE id = ?",
+                (normalized_key, confirmed_field_hash, revision["id"]),
+            )
     create_audit_event(
         project_id=workspace["visit"]["project_id"],
         visit_id=visit_id,

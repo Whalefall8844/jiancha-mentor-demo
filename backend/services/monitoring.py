@@ -8,7 +8,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from ..database import transaction
-from ..repositories.visits import get_revision, get_visit, list_action_items, list_work_records
+from ..repositories.visits import compute_confirmed_field_hash, get_revision, get_visit, list_action_items, list_work_records
 from ..simulated_ai import create_suggestions
 from .readiness import evaluate_report_readiness, readiness_error
 from .template_mapping_suggestions import MAPPING_PROFILES
@@ -1396,30 +1396,49 @@ def update_action_item(*, visit_id: str, action_item_id: str, patch: dict[str, A
 
 
 def submit_revision(
-    *, revision_id: str, actor_name: str, confirmed: bool, actor_member_id: str = ""
+    *,
+    revision_id: str,
+    actor_name: str,
+    confirmed: bool,
+    actor_member_id: str = "",
+    idempotency_key: str = "",
 ) -> dict[str, Any]:
     if not confirmed:
         raise ValueError("请先勾选 CRA 确认声明，再提交报告")
+    normalized_key = idempotency_key.strip()
     timestamp = _now()
     with transaction() as connection:
         revision = connection.execute("SELECT * FROM report_revisions WHERE id = ?", (revision_id,)).fetchone()
         if revision is None:
             raise ValueError("未找到报告修订版本")
         if revision["status"] != "draft":
+            if (
+                normalized_key
+                and revision["status"] == "submitted"
+                and str(revision["submission_idempotency_key"] or "") == normalized_key
+            ):
+                return get_revision(revision_id) or {}
             raise ValueError("请提交当前关联的工作草稿；历史正式版本不可重复提交")
         visit = _visit_context(connection, revision["visit_id"])
         readiness = evaluate_report_readiness(visit["id"])
         if not readiness["ready"]:
             raise ValueError(readiness_error(readiness))
+        stored_field_hash = str(revision["confirmed_field_hash"] or "").strip()
+        if stored_field_hash:
+            current_field_hash = compute_confirmed_field_hash(visit["id"], connection=connection)
+            if current_field_hash != stored_field_hash:
+                raise ValueError(
+                    "自上次生成报告后，确认字段或语言优化决定已发生变化，字段哈希不一致；请重新生成报告后再提交"
+                )
         connection.execute(
             """
             UPDATE report_revisions
             SET revision_type = 'formal', status = 'submitted', submitted_at = ?, submitted_by = ?,
-                submitted_by_member_id = ?, review_started_at = '', review_started_by = '',
-                review_started_by_member_id = ''
+                submitted_by_member_id = ?, submission_idempotency_key = ?, review_started_at = '',
+                review_started_by = '', review_started_by_member_id = ''
             WHERE id = ?
             """,
-            (timestamp, actor_name, actor_member_id, revision_id),
+            (timestamp, actor_name, actor_member_id, normalized_key, revision_id),
         )
         connection.execute("UPDATE visits SET status = 'submitted', updated_at = ? WHERE id = ?", (timestamp, visit["id"]))
         _audit(
@@ -1602,14 +1621,23 @@ def review_revision(
     reviewer_name: str,
     target_key: str = "",
     reviewer_member_id: str = "",
+    idempotency_key: str = "",
 ) -> dict[str, Any]:
     timestamp = _now()
+    normalized_key = idempotency_key.strip()
     with transaction() as connection:
         revision = connection.execute("SELECT * FROM report_revisions WHERE id = ?", (revision_id,)).fetchone()
         if revision is None:
             raise ValueError("未找到报告修订版本")
         visit = _visit_context(connection, revision["visit_id"])
         if revision["status"] != "submitted":
+            if (
+                action == "approved"
+                and normalized_key
+                and revision["status"] == "approved"
+                and str(revision["approval_idempotency_key"] or "") == normalized_key
+            ):
+                return {"action": "approved", "status": "approved", "revision_id": revision_id, "idempotent_reuse": True}
             raise ValueError("报告尚未提交，暂不能审核")
         if action == "approved":
             _require_distinct_submitter(revision, reviewer_name, action="批准")
@@ -1646,8 +1674,8 @@ def review_revision(
             connection.execute("UPDATE visits SET status = 'returned', updated_at = ? WHERE id = ?", (timestamp, visit["id"]))
         elif action == "approved":
             connection.execute(
-                "UPDATE report_revisions SET status = 'approved', decided_by_member_id = ? WHERE id = ?",
-                (reviewer_member_id, revision_id),
+                "UPDATE report_revisions SET status = 'approved', decided_by_member_id = ?, approval_idempotency_key = ? WHERE id = ?",
+                (reviewer_member_id, normalized_key, revision_id),
             )
             connection.execute("UPDATE visits SET status = 'approved', updated_at = ? WHERE id = ?", (timestamp, visit["id"]))
         _audit(

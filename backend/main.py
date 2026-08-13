@@ -1793,10 +1793,14 @@ def get_visit_report_readiness(visit_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/visits/{visit_id}/revisions/generate", status_code=201)
-def post_visit_revision(visit_id: str, payload: ReportGenerateRequest) -> dict[str, Any]:
+def post_visit_revision(visit_id: str, payload: ReportGenerateRequest, actor: Actor = Depends(get_actor)) -> dict[str, Any]:
     _workspace_or_404(visit_id)
     try:
-        return generate_revision(visit_id=visit_id, created_by=payload.created_by)
+        return generate_revision(
+            visit_id=visit_id,
+            created_by=actor.display_name or payload.created_by,
+            idempotency_key=payload.idempotency_key,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -1861,6 +1865,7 @@ def post_revision_submit(revision_id: str, payload: SubmitRequest, actor: Actor 
             actor_name=actor.display_name or payload.cra_name,
             actor_member_id=actor.member_id,
             confirmed=payload.confirmed,
+            idempotency_key=payload.idempotency_key,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -1921,6 +1926,7 @@ def post_revision_review(revision_id: str, payload: ReviewCreate, actor: Actor =
             reviewer_name=actor.display_name or payload.reviewer_name,
             reviewer_member_id=actor.member_id,
             target_key=payload.target_key,
+            idempotency_key=payload.idempotency_key,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
