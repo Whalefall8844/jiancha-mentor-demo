@@ -253,8 +253,13 @@ def ensure_seed_data() -> None:
                 (subject_id, site_id, code, status, created_at, created_at),
             )
 
-        _insert_members(connection, "project-ua007", [("演示 CRA", "CRA"), ("演示 PM", "PM_LM"), ("演示管理员", "PROJECT_ADMIN"), ("演示医学监察/DM", "MEDICAL_DATA_REVIEWER")], created_at)
-        _insert_members(connection, "project-cm102", [("演示 CRA", "CRA"), ("演示 PM", "PM_LM"), ("演示管理员", "PROJECT_ADMIN"), ("演示医学监察/DM", "MEDICAL_DATA_REVIEWER")], created_at)
+        _insert_members(connection, "project-ua007", [("演示 CRA", "CRA"), ("演示 PM", "PM_LM"), ("演示管理员", "PROJECT_ADMIN"), ("演示医学监察/DM", "MEDICAL_DATA_REVIEWER"), ("演示 QA/临床运营", "QA_CLINICAL_OPS"), ("备用 CRA", "CRA")], created_at)
+        _insert_members(connection, "project-cm102", [("演示 CRA", "CRA"), ("演示 PM", "PM_LM"), ("演示管理员", "PROJECT_ADMIN"), ("演示医学监察/DM", "MEDICAL_DATA_REVIEWER"), ("演示 QA/临床运营", "QA_CLINICAL_OPS")], created_at)
+
+        connection.execute(
+            "INSERT INTO system_admins (id, display_name, status, created_at) VALUES (?, ?, ?, ?)",
+            ("system-admin-1", "演示系统管理员", "active", created_at),
+        )
 
         connection.execute(
             "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
@@ -263,4 +268,12 @@ def ensure_seed_data() -> None:
         connection.execute(
             "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
             ("current_role", "CRA", created_at),
+        )
+        connection.execute(
+            "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
+            ("current_member_id", "project-ua007-member-1", created_at),
+        )
+        connection.execute(
+            "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
+            ("current_actor_kind", "project_member", created_at),
         )

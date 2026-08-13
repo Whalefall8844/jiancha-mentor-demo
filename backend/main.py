@@ -8,7 +8,15 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadF
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 
-from .database import initialize_database, reset_database
+from .auth import (
+    Actor,
+    ActorAuthMiddleware,
+    SYSTEM_ADMIN_ROLE,
+    get_actor,
+    require_project_scope,
+    require_roles,
+)
+from .database import get_connection, initialize_database, reset_database
 from .models import (
     ActionItemCreate,
     ActionItemFindingLinksUpdate,
@@ -210,6 +218,10 @@ from .services.workspace import build_workspace, default_workspace
 
 
 app = FastAPI(title="监查 Mentor Demo", version="0.3.0")
+# Registered before CORSMiddleware so that, once Starlette builds its stack,
+# CORSMiddleware ends up *outside* ActorAuthMiddleware and still attaches
+# CORS headers to 401/403 responses produced by the auth layer.
+app.add_middleware(ActorAuthMiddleware, fastapi_app=app)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -306,6 +318,24 @@ def get_current_role() -> dict[str, str]:
 
 @app.put("/api/settings/current-role")
 def put_current_role(payload: CurrentRoleUpdate) -> dict[str, str]:
+    """Switch the demo's acting identity.
+
+    The role label alone is not a trustworthy identity (see backend/auth.py):
+    switching it also re-points the ``current_member_id`` demo fallback at a
+    real ``project_members`` row with that role in the active visit's
+    project, so that server-side role checks and the BR-20 submitter/approver
+    distinction reflect what the tester actually selected.
+    """
+    workspace = default_workspace()
+    project_id = workspace["visit"]["project_id"] if workspace else ""
+    with get_connection() as connection:
+        member = connection.execute(
+            "SELECT id FROM project_members WHERE project_id = ? AND role = ? AND status = 'active' ORDER BY created_at LIMIT 1",
+            (project_id, payload.role),
+        ).fetchone()
+    if member is not None:
+        set_setting("current_member_id", member["id"])
+        set_setting("current_actor_kind", "project_member")
     set_setting("current_role", payload.role)
     return {"role": payload.role}
 

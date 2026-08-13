@@ -641,6 +641,56 @@ CREATE TABLE IF NOT EXISTS import_batch_rows (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS system_admins (
+    id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS export_events (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL DEFAULT '',
+    visit_id TEXT NOT NULL DEFAULT '',
+    revision_id TEXT NOT NULL DEFAULT '',
+    export_type TEXT NOT NULL,
+    file_name TEXT NOT NULL DEFAULT '',
+    file_hash TEXT NOT NULL DEFAULT '',
+    report_version TEXT NOT NULL DEFAULT '',
+    exported_by_member_id TEXT NOT NULL DEFAULT '',
+    exported_by_name TEXT NOT NULL DEFAULT '',
+    purpose TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS break_glass_requests (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    object_scope TEXT NOT NULL DEFAULT '',
+    purpose TEXT NOT NULL,
+    requested_by TEXT NOT NULL,
+    requested_by_role TEXT NOT NULL DEFAULT '',
+    business_approver TEXT NOT NULL DEFAULT '',
+    business_approved_at TEXT NOT NULL DEFAULT '',
+    security_approver TEXT NOT NULL DEFAULT '',
+    security_approved_at TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending_business_approval',
+    emergency_self_activated INTEGER NOT NULL DEFAULT 0,
+    max_duration_minutes INTEGER NOT NULL DEFAULT 60,
+    activated_at TEXT NOT NULL DEFAULT '',
+    expires_at TEXT NOT NULL DEFAULT '',
+    ended_at TEXT NOT NULL DEFAULT '',
+    ended_reason TEXT NOT NULL DEFAULT '',
+    review_status TEXT NOT NULL DEFAULT 'not_required',
+    review_note TEXT NOT NULL DEFAULT '',
+    reviewed_by TEXT NOT NULL DEFAULT '',
+    reviewed_at TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_export_events_visit ON export_events(visit_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_break_glass_project_status ON break_glass_requests(project_id, status);
+
 CREATE INDEX IF NOT EXISTS idx_sites_project ON sites(project_id);
 CREATE INDEX IF NOT EXISTS idx_project_eligibility_project_status ON project_eligibility_assessments(project_id, status, assessment_version DESC);
 CREATE INDEX IF NOT EXISTS idx_site_master_versions_site_effective ON site_master_versions(site_id, status, effective_from);
@@ -707,6 +757,8 @@ def initialize_database() -> None:
             _ensure_visit_handover_administration_columns(connection)
             _ensure_master_data_refresh_columns(connection)
             _ensure_language_suggestion_lifecycle_columns(connection)
+            _ensure_report_revision_integrity_columns(connection)
+            _ensure_attachment_security_columns(connection)
         from .seed_data import ensure_seed_data
 
         ensure_seed_data()
@@ -1137,6 +1189,56 @@ def _ensure_review_comment_type_column(connection: sqlite3.Connection) -> None:
     )
 
 
+def _ensure_report_revision_integrity_columns(connection: sqlite3.Connection) -> None:
+    """Add BR-17/BR-20/FR-09 identity, idempotency and file-integrity columns."""
+    existing = {row["name"] for row in connection.execute("PRAGMA table_info(report_revisions)").fetchall()}
+    additions = {
+        "file_hash": "TEXT NOT NULL DEFAULT ''",
+        "confirmed_field_hash": "TEXT NOT NULL DEFAULT ''",
+        "submitted_by_member_id": "TEXT NOT NULL DEFAULT ''",
+        "review_started_by_member_id": "TEXT NOT NULL DEFAULT ''",
+        "decided_by_member_id": "TEXT NOT NULL DEFAULT ''",
+        "generation_idempotency_key": "TEXT NOT NULL DEFAULT ''",
+        "submission_idempotency_key": "TEXT NOT NULL DEFAULT ''",
+        "approval_idempotency_key": "TEXT NOT NULL DEFAULT ''",
+    }
+    for name, definition in additions.items():
+        if name not in existing:
+            connection.execute(f"ALTER TABLE report_revisions ADD COLUMN {name} {definition}")
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_report_revisions_generation_key "
+        "ON report_revisions(visit_id, generation_idempotency_key)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_report_revisions_submission_key "
+        "ON report_revisions(submission_idempotency_key)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_report_revisions_approval_key "
+        "ON report_revisions(approval_idempotency_key)"
+    )
+
+
+def _ensure_attachment_security_columns(connection: sqlite3.Connection) -> None:
+    """Add BR-22/BR-23 hash, type/size and scan-status columns for uploaded attachments."""
+    existing = {row["name"] for row in connection.execute("PRAGMA table_info(attachments)").fetchall()}
+    additions = {
+        "file_hash": "TEXT NOT NULL DEFAULT ''",
+        "content_type": "TEXT NOT NULL DEFAULT ''",
+        "size_bytes": "INTEGER NOT NULL DEFAULT 0",
+        "scan_status": "TEXT NOT NULL DEFAULT 'pending'",
+        "scan_notes": "TEXT NOT NULL DEFAULT ''",
+        "created_by_member_id": "TEXT NOT NULL DEFAULT ''",
+        "deidentification_ack": "INTEGER NOT NULL DEFAULT 0",
+    }
+    for name, definition in additions.items():
+        if name not in existing:
+            connection.execute(f"ALTER TABLE attachments ADD COLUMN {name} {definition}")
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_attachments_visit_scan ON attachments(visit_id, scan_status)"
+    )
+
+
 def _mask_subject_code(value: str) -> str:
     subject_code = value.strip()
     if not subject_code or subject_code == "未提供受试者编号":
@@ -1154,6 +1256,8 @@ def reset_database() -> None:
         with transaction() as connection:
             for table_name in (
                 "audit_events",
+                "export_events",
+                "break_glass_requests",
                 "clarification_responses",
                 "clarification_items",
                 "configuration_audit_events",
@@ -1189,6 +1293,7 @@ def reset_database() -> None:
                 "site_master_versions",
                 "sites",
                 "projects",
+                "system_admins",
                 "app_settings",
             ):
                 connection.execute(f"DELETE FROM {table_name}")
