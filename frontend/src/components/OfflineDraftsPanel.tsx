@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import { getBrowserClientId, makeBrowserDraftId, readOfflineDraftQueue, type BrowserDraft, writeOfflineDraftQueue } from '../offlineDraftStorage'
+import { clearOfflineDraftQueue, clearOfflineEncryptionKey, getBrowserClientId, makeBrowserDraftId, readOfflineDraftQueue, type BrowserDraft, writeOfflineDraftQueue } from '../offlineDraftStorage'
 import type { DemoState, SyncConflict } from '../types'
 
 interface OfflineDraftsPanelProps {
@@ -25,18 +25,22 @@ export function OfflineDraftsPanel({ state, draftText, onDraftStored, onStateCha
   }
 
   useEffect(() => {
-    setLocalDrafts(readOfflineDraftQueue(visitId))
+    let cancelled = false
+    void readOfflineDraftQueue(visitId).then((items) => {
+      if (!cancelled) setLocalDrafts(items)
+    })
     void refreshRemote().catch(() => undefined)
     const updateOnline = () => setOnline(navigator.onLine)
     window.addEventListener('online', updateOnline)
     window.addEventListener('offline', updateOnline)
     return () => {
+      cancelled = true
       window.removeEventListener('online', updateOnline)
       window.removeEventListener('offline', updateOnline)
     }
   }, [visitId])
 
-  const storeLocal = () => {
+  const storeLocal = async () => {
     const text = draftText.trim()
     if (!text || !visitId) {
       onNotice('请先在“现场记录”中写入需要暂存的内容。', 'error')
@@ -52,10 +56,10 @@ export function OfflineDraftsPanel({ state, draftText, onDraftStored, onStateCha
       },
       ...localDrafts,
     ]
-    writeOfflineDraftQueue(visitId, next)
+    await writeOfflineDraftQueue(visitId, next)
     setLocalDrafts(next)
     onDraftStored()
-    onNotice('已暂存到本机离线草稿；即使刷新页面也会保留。')
+    onNotice('已加密暂存到本机离线草稿；即使刷新页面也会保留。')
   }
 
   const syncDraft = async (draft: BrowserDraft) => {
@@ -69,7 +73,7 @@ export function OfflineDraftsPanel({ state, draftText, onDraftStored, onStateCha
         actor_name: state.visit.cra_name,
       })
       const remaining = localDrafts.filter((item) => item.id !== draft.id)
-      writeOfflineDraftQueue(visitId, remaining)
+      await writeOfflineDraftQueue(visitId, remaining)
       setLocalDrafts(remaining)
       await refreshRemote()
       if (result.status === 'synced') {
@@ -83,6 +87,13 @@ export function OfflineDraftsPanel({ state, draftText, onDraftStored, onStateCha
     } finally {
       setBusyId(null)
     }
+  }
+
+  const controlledClear = () => {
+    clearOfflineDraftQueue(visitId)
+    clearOfflineEncryptionKey()
+    setLocalDrafts([])
+    onNotice('已受控清除本机加密离线草稿，权限撤销或更换设备后不可再读取。')
   }
 
   const resolveConflict = async (conflict: SyncConflict, resolution: 'local' | 'server') => {
@@ -112,15 +123,16 @@ export function OfflineDraftsPanel({ state, draftText, onDraftStored, onStateCha
 
       <div className="offline-store-row">
         <div><strong>当前现场记录</strong><span>{draftText.trim() ? `${draftText.trim().length} 字待暂存` : '尚未输入内容'}</span></div>
-        <button type="button" className="button quiet" onClick={storeLocal} disabled={!draftText.trim() || !visitId}>暂存至本机离线草稿</button>
+        <button type="button" className="button quiet" onClick={() => void storeLocal()} disabled={!draftText.trim() || !visitId}>暂存至本机离线草稿</button>
       </div>
 
       {localDrafts.length === 0 ? <div className="empty-state inline"><span>当前浏览器没有待同步草稿。</span></div> : (
         <div className="offline-draft-list">
           {localDrafts.map((draft) => <article className="offline-draft-row" key={draft.id}>
-            <div><span className="draft-status">本机草稿</span><p>{draft.text}</p><small>暂存时间：{draft.created_at}</small></div>
+            <div><span className="draft-status">本机加密草稿</span><p>{draft.text}</p><small>暂存时间：{draft.created_at}</small></div>
             <button type="button" className="button secondary small" disabled={busyId === draft.id} onClick={() => void syncDraft(draft)}>{busyId === draft.id ? '正在同步…' : '同步到工作区'}</button>
           </article>)}
+          <button type="button" className="button quiet small controlled-clear" onClick={controlledClear}>受控清除本机全部离线草稿</button>
         </div>
       )}
 

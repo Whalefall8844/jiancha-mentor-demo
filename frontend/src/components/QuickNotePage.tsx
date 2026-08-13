@@ -31,12 +31,18 @@ export function QuickNotePage({ state, onStateChange, onNotice }: QuickNotePageP
   const [online, setOnline] = useState(() => navigator.onLine)
 
   useEffect(() => {
-    setDrafts(readOfflineDraftQueue(visitId))
+    let cancelled = false
+    void readOfflineDraftQueue(visitId).then((items) => {
+      if (!cancelled) setDrafts(items)
+    })
     setText('')
     setLinkedTaskId('')
     setTags('')
     setClientKey('')
     setDuplicateCandidates([])
+    return () => {
+      cancelled = true
+    }
   }, [visitId])
 
   useEffect(() => {
@@ -49,8 +55,8 @@ export function QuickNotePage({ state, onStateChange, onNotice }: QuickNotePageP
     }
   }, [])
 
-  const updateDrafts = (next: BrowserDraft[]) => {
-    writeOfflineDraftQueue(visitId, next)
+  const updateDrafts = async (next: BrowserDraft[]) => {
+    await writeOfflineDraftQueue(visitId, next)
     setDrafts(next)
   }
 
@@ -102,7 +108,7 @@ export function QuickNotePage({ state, onStateChange, onNotice }: QuickNotePageP
     }
   }
 
-  const storeOffline = () => {
+  const storeOffline = async () => {
     const normalizedText = text.trim()
     if (!normalizedText || !visitId) {
       onNotice('请先填写需要离线暂存的速记内容。', 'error')
@@ -115,9 +121,9 @@ export function QuickNotePage({ state, onStateChange, onNotice }: QuickNotePageP
       base_updated_at: state.visit.sync_token ?? state.visit.updated_at ?? '',
       created_at: new Date().toLocaleString('zh-CN', { hour12: false }),
     }, ...drafts]
-    updateDrafts(next)
+    await updateDrafts(next)
     resetComposer()
-    onNotice('速记已暂存到本机离线草稿。')
+    onNotice('速记已加密暂存到本机离线草稿。')
   }
 
   const syncDraft = async (draft: BrowserDraft) => {
@@ -130,7 +136,7 @@ export function QuickNotePage({ state, onStateChange, onNotice }: QuickNotePageP
         base_updated_at: draft.base_updated_at,
         actor_name: state.visit.cra_name || '演示 CRA',
       })
-      updateDrafts(drafts.filter((item) => item.id !== draft.id))
+      await updateDrafts(drafts.filter((item) => item.id !== draft.id))
       if (result.status === 'synced') {
         onStateChange(await api.getState(visitId))
         onNotice('离线速记已同步并进入 CRA 建议确认流程。')
@@ -174,7 +180,7 @@ export function QuickNotePage({ state, onStateChange, onNotice }: QuickNotePageP
             <label>关联任务（可选）<select value={linkedTaskId} disabled={!canEdit} onChange={(event) => setLinkedTaskId(event.target.value)}><option value="">不关联，由系统建议归类</option>{allTasks.map((task) => <option key={task.id} value={task.id}>{taskLabel(task)}</option>)}</select></label>
             <label>标签（可选）<input value={tags} disabled={!canEdit} onChange={(event) => setTags(event.target.value)} placeholder="例如：ICF、现场、待跟进" /></label>
           </div>
-          <div className="quick-note-footer"><span>{selectedTask ? `本条将关联：${taskLabel(selectedTask)}` : '可直接记录，后续在监查工作台确认归类与结论。'}</span><div><button type="button" className="button quiet" disabled={!canEdit || !text.trim()} onClick={storeOffline}>暂存离线</button><button type="button" className="button primary" disabled={!canEdit || saving || !text.trim()} onClick={() => void saveRecord()}>{saving ? '正在保存…' : '保存并整理'}</button></div></div>
+          <div className="quick-note-footer"><span>{selectedTask ? `本条将关联：${taskLabel(selectedTask)}` : '可直接记录，后续在监查工作台确认归类与结论。'}</span><div><button type="button" className="button quiet" disabled={!canEdit || !text.trim()} onClick={() => void storeOffline()}>暂存离线</button><button type="button" className="button primary" disabled={!canEdit || saving || !text.trim()} onClick={() => void saveRecord()}>{saving ? '正在保存…' : '保存并整理'}</button></div></div>
           <p className="quick-note-offline-hint">离线暂存仅保留速记原文；如需保留关联任务或标签，请恢复网络后使用“保存并整理”。</p>
         </div>
       </section>
