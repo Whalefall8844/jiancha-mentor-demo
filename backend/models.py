@@ -384,7 +384,7 @@ class ProjectMemberPatch(BaseModel):
 
 
 class CurrentRoleUpdate(BaseModel):
-    role: Literal["CRA", "PM_LM", "PROJECT_ADMIN", "QA_CLINICAL_OPS", "MEDICAL_DATA_REVIEWER"]
+    role: Literal["CRA", "PM_LM", "PROJECT_ADMIN", "QA_CLINICAL_OPS", "MEDICAL_DATA_REVIEWER", "SYSTEM_ADMIN"]
 
 
 class OfflineDraftSync(BaseModel):
@@ -479,3 +479,25 @@ class ReviewCommentResolve(BaseModel):
     resolution: Literal["accepted", "declined"]
     note: str = Field(default="", max_length=3000)
     actor_name: str = Field(default="演示 CRA", max_length=80)
+
+
+class BreakGlassCreate(BaseModel):
+    project_id: str = Field(min_length=1)
+    object_scope: str = Field(default="", max_length=300)
+    purpose: str = Field(min_length=1, max_length=1000)
+    max_duration_minutes: int = Field(default=60, ge=1, le=1440)
+    emergency_self_activate: bool = False
+
+
+class BreakGlassApproval(BaseModel):
+    actor_name: str = Field(default="", max_length=120)
+
+
+class BreakGlassEnd(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+    actor_name: str = Field(default="", max_length=120)
+
+
+class BreakGlassReview(BaseModel):
+    note: str = Field(min_length=1, max_length=2000)
+    actor_name: str = Field(default="", max_length=120)

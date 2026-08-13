@@ -1,4 +1,4 @@
-import type { ActionItem, AdapterConfig, Attachment, ClarificationItem, ConfigurationApprovalAction, ControlledDocument, ControlledDocumentType, DemoState, EvidenceChain, FrozenMasterData, ImportBatch, ImportQualitySummary, LanguageSuggestion, MasterDataRefreshPreview, OfflineDraft, OperationEscalation, ProjectEligibilityAssessment, ProjectEligibilityAssessmentInput, ProjectHistoryInsights, ProjectInfo, ProjectMember, ProjectSummary, RecordItem, Recruitment, ReportReadiness, ReportRevision, ReportStatus, ReviewComment, RulePack, SiteMasterVersion, SiteSummary, Suggestion, SyncConflict, TaskExecutionPatch, TemplateConfigurationPackageImportResult, TemplateDetail, TemplateFieldSlot, TemplateFieldSlotSuggestionImportResult, TemplateMapping, TemplateMappingSuggestionImportResult, TemplateRecommendationResponse, TemplateSummary, TemplateSwitchPreview, UserRole, VisitDateReassessmentPreview, VisitHandover, VisitInfo, VisitOperations, VisitSummary, WorkflowStage } from './types'
+import type { ActionItem, AdapterConfig, Attachment, BreakGlassRequest, ClarificationItem, ConfigurationApprovalAction, ControlledDocument, ControlledDocumentType, DemoState, EvidenceChain, FrozenMasterData, ImportBatch, ImportQualitySummary, LanguageSuggestion, MasterDataRefreshPreview, OfflineDraft, OperationEscalation, ProjectEligibilityAssessment, ProjectEligibilityAssessmentInput, ProjectHistoryInsights, ProjectInfo, ProjectMember, ProjectSummary, RecordItem, Recruitment, ReportReadiness, ReportRevision, ReportStatus, ReviewComment, RulePack, SiteMasterVersion, SiteSummary, Suggestion, SyncConflict, TaskExecutionPatch, TemplateConfigurationPackageImportResult, TemplateDetail, TemplateFieldSlot, TemplateFieldSlotSuggestionImportResult, TemplateMapping, TemplateMappingSuggestionImportResult, TemplateRecommendationResponse, TemplateSummary, TemplateSwitchPreview, UserRole, VisitDateReassessmentPreview, VisitHandover, VisitInfo, VisitOperations, VisitSummary, WorkflowStage } from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -356,6 +356,18 @@ export const api = {
     }),
   reset: () => request<DemoState>('/api/reset', { method: 'POST' }),
   generateReport: () => downloadDocument('/api/report/generate', '监查报告_Demo.docx'),
+  listBreakGlassRequests: (projectId: string) =>
+    request<{ items: BreakGlassRequest[] }>(`/api/break-glass-requests?project_id=${encodeURIComponent(projectId)}`),
+  createBreakGlassRequest: (payload: { project_id: string; object_scope: string; purpose: string; max_duration_minutes: number; emergency_self_activate: boolean }) =>
+    request<BreakGlassRequest>('/api/break-glass-requests', { method: 'POST', body: JSON.stringify(payload) }),
+  approveBreakGlassBusiness: (requestId: string) =>
+    request<BreakGlassRequest>(`/api/break-glass-requests/${requestId}/business-approval`, { method: 'POST', body: JSON.stringify({}) }),
+  approveBreakGlassSecurity: (requestId: string) =>
+    request<BreakGlassRequest>(`/api/break-glass-requests/${requestId}/security-approval`, { method: 'POST', body: JSON.stringify({}) }),
+  endBreakGlass: (requestId: string, reason: string) =>
+    request<BreakGlassRequest>(`/api/break-glass-requests/${requestId}/end`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  reviewBreakGlass: (requestId: string, note: string) =>
+    request<BreakGlassRequest>(`/api/break-glass-requests/${requestId}/review`, { method: 'POST', body: JSON.stringify({ note }) }),
 }
 
 export const reportStatusLabel: Record<ReportStatus, string> = {

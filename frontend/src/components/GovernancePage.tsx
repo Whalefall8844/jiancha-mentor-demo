@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import { BreakGlassPanel } from './BreakGlassPanel'
 import { RulePackCitationSearch } from './RulePackCitationSearch'
 import { controlledStyleReferenceLabel, readControlledStyleReferences, styleReferenceContentWith, styleReferenceFromReport, type ControlledStyleReference } from '../styleReferences'
 import { controlledLanguageContentWith, readConfiguredTerminology, readPreferredPhraseReplacements, type ControlledLanguageRuleEntry } from '../controlledLanguageRules'
@@ -440,6 +441,8 @@ export function GovernancePage({ state, onNotice }: GovernancePageProps) {
           <div><strong>固定表达</strong>{frozenPreferredPhraseEntries.length === 0 ? <span>未配置</span> : frozenPreferredPhraseEntries.map((entry, index) => <span key={`frozen-phrase-${index}`}>{entry.source} → {entry.target}</span>)}</div>
         </div>}
       </section>
+
+      <BreakGlassPanel state={state} onNotice={onNotice} />
     </div>
   )
 }

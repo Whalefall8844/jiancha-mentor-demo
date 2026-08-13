@@ -43,7 +43,9 @@ const roleLabel = (role: DemoState['current_role']) => role === 'CRA'
       ? 'QA / 临床运营审批人'
       : role === 'MEDICAL_DATA_REVIEWER'
         ? '医学监察 / 数据管理'
-        : '项目管理员'
+        : role === 'SYSTEM_ADMIN'
+          ? '系统管理员（默认无临床内容权限）'
+          : '项目管理员'
 
 export function AppShell({ state, page, onPageChange, onReset, children }: AppShellProps) {
   const confirmed = state.table_tasks.filter((item) => item.status === '已确认' || item.status === '已映射').length

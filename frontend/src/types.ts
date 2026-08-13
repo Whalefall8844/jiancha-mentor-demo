@@ -1,6 +1,32 @@
 export type ReportStatus = 'draft' | 'submitted' | 'returned' | 'withdrawn' | 'approved' | 'voided' | 'cancelled'
 export type WorkflowStage = 'draft' | 'pending_cra_confirmation' | 'ready_to_submit' | 'under_review' | 'returned' | 'approved' | 'cancelled'
-export type UserRole = 'CRA' | 'PM_LM' | 'PROJECT_ADMIN' | 'QA_CLINICAL_OPS' | 'MEDICAL_DATA_REVIEWER'
+export type UserRole = 'CRA' | 'PM_LM' | 'PROJECT_ADMIN' | 'QA_CLINICAL_OPS' | 'MEDICAL_DATA_REVIEWER' | 'SYSTEM_ADMIN'
+
+export interface BreakGlassRequest {
+  id: string
+  project_id: string
+  object_scope: string
+  purpose: string
+  requested_by: string
+  requested_by_role: string
+  business_approver: string
+  business_approved_at: string
+  security_approver: string
+  security_approved_at: string
+  status: 'pending_business_approval' | 'pending_security_approval' | 'active' | 'ended'
+  emergency_self_activated: number
+  max_duration_minutes: number
+  activated_at: string
+  expires_at: string
+  ended_at: string
+  ended_reason: string
+  review_status: 'not_required' | 'pending' | 'completed'
+  review_note: string
+  reviewed_by: string
+  reviewed_at: string
+  created_at: string
+  is_expired: boolean
+}
 export type ConfigurationStatus = 'draft' | 'pending_approval' | 'active' | 'rejected' | 'inactive'
 export type ConfigurationApprovalAction = 'submit' | 'approve' | 'reject' | 'withdraw' | 'deactivate'
 export type ProjectEligibilityAssessmentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'withdrawn'

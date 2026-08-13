@@ -25,6 +25,10 @@ from .models import (
     AdapterConfigPatch,
     AdministratorHandoverAcknowledgement,
     AdministratorHandoverCreate,
+    BreakGlassApproval,
+    BreakGlassCreate,
+    BreakGlassEnd,
+    BreakGlassReview,
     ConfigurationApprovalAction,
     ControlledDocumentPatch,
     ClarificationRefreshRequest,
@@ -179,6 +183,14 @@ from .services.reports import generate_revision
 from .services.readiness import evaluate_report_readiness
 from .services.clarifications import list_clarification_items, refresh_clarification_items, resolve_clarification_item
 from .services.attachments import get_stored_attachment, list_visit_attachments, save_attachment
+from .services.break_glass import (
+    approve_business,
+    approve_security,
+    create_break_glass_request,
+    end_break_glass,
+    list_break_glass_requests,
+    record_review,
+)
 from .services.controlled_documents import get_stored_controlled_document, save_controlled_document_file
 from .services.continuity import (
     acknowledge_administrator_visit_handover,
@@ -326,6 +338,17 @@ def put_current_role(payload: CurrentRoleUpdate) -> dict[str, str]:
     project, so that server-side role checks and the BR-20 submitter/approver
     distinction reflect what the tester actually selected.
     """
+    if payload.role == "SYSTEM_ADMIN":
+        with get_connection() as connection:
+            admin = connection.execute(
+                "SELECT id FROM system_admins WHERE status = 'active' ORDER BY created_at LIMIT 1"
+            ).fetchone()
+        if admin is not None:
+            set_setting("current_member_id", admin["id"])
+            set_setting("current_actor_kind", "system_admin")
+        set_setting("current_role", payload.role)
+        return {"role": payload.role}
+
     workspace = default_workspace()
     project_id = workspace["visit"]["project_id"] if workspace else ""
     with get_connection() as connection:
@@ -2091,6 +2114,63 @@ def post_review(payload: ReviewCreate) -> dict[str, Any]:
         target_key=payload.target_key,
     )
     return _default_legacy_workspace()
+
+
+@app.get("/api/break-glass-requests")
+def get_break_glass_requests(project_id: str = "") -> dict[str, Any]:
+    return {"items": list_break_glass_requests(project_id)}
+
+
+@app.post("/api/break-glass-requests", status_code=201)
+def post_break_glass_request(payload: BreakGlassCreate, actor: Actor = Depends(get_actor)) -> dict[str, Any]:
+    try:
+        return create_break_glass_request(
+            project_id=payload.project_id,
+            object_scope=payload.object_scope,
+            purpose=payload.purpose,
+            requested_by=actor.display_name,
+            requested_by_role=actor.role,
+            max_duration_minutes=payload.max_duration_minutes,
+            emergency_self_activate=payload.emergency_self_activate,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/break-glass-requests/{request_id}/business-approval")
+def post_break_glass_business_approval(
+    request_id: str, payload: BreakGlassApproval, actor: Actor = Depends(get_actor)
+) -> dict[str, Any]:
+    try:
+        return approve_business(request_id=request_id, approver_name=actor.display_name or payload.actor_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/break-glass-requests/{request_id}/security-approval")
+def post_break_glass_security_approval(
+    request_id: str, payload: BreakGlassApproval, actor: Actor = Depends(get_actor)
+) -> dict[str, Any]:
+    try:
+        return approve_security(request_id=request_id, approver_name=actor.display_name or payload.actor_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/break-glass-requests/{request_id}/end")
+def post_break_glass_end(request_id: str, payload: BreakGlassEnd, actor: Actor = Depends(get_actor)) -> dict[str, Any]:
+    try:
+        return end_break_glass(request_id=request_id, actor_name=actor.display_name or payload.actor_name, reason=payload.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/break-glass-requests/{request_id}/review")
+def post_break_glass_review(request_id: str, payload: BreakGlassReview, actor: Actor = Depends(get_actor)) -> dict[str, Any]:
+    try:
+        return record_review(request_id=request_id, reviewer_name=actor.display_name or payload.actor_name, note=payload.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/reset")

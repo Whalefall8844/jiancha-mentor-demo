@@ -14,7 +14,12 @@ const roleLabels: Record<UserRole, string> = {
   PROJECT_ADMIN: '项目管理员',
   QA_CLINICAL_OPS: 'QA / 临床运营审批人',
   MEDICAL_DATA_REVIEWER: '医学监察 / 数据管理',
+  SYSTEM_ADMIN: '系统管理员（默认无临床内容权限）',
 }
+
+// 系统管理员不是项目成员角色（见 backend/auth.py 的 system_admins 表），仅用于顶部角色切换器
+// 演示身份，不出现在"新增项目成员"的角色下拉中。
+const projectMemberRoles: UserRole[] = ['CRA', 'PM_LM', 'PROJECT_ADMIN', 'QA_CLINICAL_OPS', 'MEDICAL_DATA_REVIEWER']
 
 const taskScopeLabel = (task: { task_type?: string; table_index: number }) => task.task_type === 'system_device_check' ? '系统／设备' : `表 ${task.table_index}`
 
@@ -312,7 +317,7 @@ export function CollaborationPage({ state, onStateChange, onNotice }: Collaborat
         </div>
         {isProjectAdmin ? <form className="member-create-form" onSubmit={createMember}>
           <label>新增内部成员<input required value={memberDraft.display_name} onChange={(event) => setMemberDraft({ ...memberDraft, display_name: event.target.value })} placeholder="例如：王 CRA" /></label>
-          <label>角色<select value={memberDraft.role} onChange={(event) => setMemberDraft({ ...memberDraft, role: event.target.value as UserRole })}>{(Object.keys(roleLabels) as UserRole[]).map((role) => <option key={role} value={role}>{roleLabels[role]}</option>)}</select></label>
+          <label>角色<select value={memberDraft.role} onChange={(event) => setMemberDraft({ ...memberDraft, role: event.target.value as UserRole })}>{projectMemberRoles.map((role) => <option key={role} value={role}>{roleLabels[role]}</option>)}</select></label>
           <button type="submit" className="button quiet" disabled={busy}>添加成员</button>
         </form> : <div className="role-readonly-banner">成员维护由项目管理员完成；当前角色可查看团队台账与负责 CRA。</div>}
       </section>
