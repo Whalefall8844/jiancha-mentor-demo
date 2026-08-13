@@ -1,0 +1,4 @@
+project_code,site_code,site_name,pi_name,ethics_date,protocol_version,icf_version
+UA007-GT02,901,导入预检演示中心,导入预检 PI,伦理批准：2026-09-01,方案 V2.1,ICF V2.0
+UA007-GT02,,缺少中心编号的演示行,导入预检 PI,伦理批准：2026-09-01,方案 V2.1,ICF V2.0
+UA007-GT02,901,重复中心编号的演示行,导入预检 PI,伦理批准：2026-09-01,方案 V2.1,ICF V2.0
