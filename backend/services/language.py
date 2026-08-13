@@ -30,6 +30,49 @@ def _now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
+# PRD 9.8/11.4: "当系统检测到数字、日期、版本、受试者编号、专有名词、否定词、范围词、责任主体或
+# 结论发生变化时，阻止接受并要求重新生成或人工改写". The current adapter is a deterministic,
+# non-generative rewriter (whitespace/terminology/fixed-phrase substitution only), so it cannot
+# itself invent new facts — but a misconfigured rule-pack preferred_phrase mapping could still
+# silently swap a negation or a number, and this is also the safety net PRD 11.9 requires to
+# already exist before a real LLM ever replaces the deterministic adapter. It only gates the
+# "accept the machine-proposed text as-is" path; "edited" (CRA manually retypes the text) is the
+# PRD's own escape valve ("要求重新生成或人工改写") and is not blocked here.
+_NUMBER_PATTERN = re.compile(r"\d+(?:\.\d+)?%?")
+_DATE_PATTERN = re.compile(r"\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?")
+_VERSION_PATTERN = re.compile(r"[Vv]\d+(?:\.\d+)*")
+_SUBJECT_CODE_PATTERN = re.compile(r"\b\d{2,4}-\d{2,4}\b")
+_NEGATION_WORDS = ("不", "未", "无", "没有", "拒绝", "并非", "并未", "未见", "未发现", "不适用", "不符合")
+
+
+def _token_counts(text: str, pattern: re.Pattern[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for match in pattern.findall(text):
+        counts[match] = counts.get(match, 0) + 1
+    return counts
+
+
+def detect_high_risk_language_diff(original_text: str, proposed_text: str) -> list[str]:
+    """Return a list of human-readable reasons the diff should be blocked, or [] if safe."""
+    reasons: list[str] = []
+    checks: tuple[tuple[str, re.Pattern[str]], ...] = (
+        ("数字/百分比", _NUMBER_PATTERN),
+        ("日期", _DATE_PATTERN),
+        ("版本号", _VERSION_PATTERN),
+        ("受试者编号格式片段", _SUBJECT_CODE_PATTERN),
+    )
+    for label, pattern in checks:
+        if _token_counts(original_text, pattern) != _token_counts(proposed_text, pattern):
+            reasons.append(f"{label}发生变化")
+
+    original_negations = {word: original_text.count(word) for word in _NEGATION_WORDS if word in original_text}
+    proposed_negations = {word: proposed_text.count(word) for word in _NEGATION_WORDS if word in proposed_text}
+    if original_negations != proposed_negations:
+        reasons.append("否定/范围词发生变化")
+
+    return reasons
+
+
 def _row(row) -> dict[str, Any] | None:
     return dict(row) if row is not None else None
 
@@ -339,6 +382,14 @@ def decide_language_suggestion(
             final_text = (edited_text if decision == "edited" else row["proposed_text"]).strip()
             if not final_text:
                 raise ValueError("确认后的展示文本不能为空")
+        if decision == "accepted":
+            risk_reasons = detect_high_risk_language_diff(row["original_text"], row["proposed_text"])
+            if risk_reasons:
+                raise ValueError(
+                    "检测到优化稿相对原文存在高风险差异（"
+                    + "、".join(risk_reasons)
+                    + "），已阻止一键接受；请核对差异后选择重新生成或改为人工改写"
+                )
         connection.execute(
             """
             UPDATE language_suggestions
