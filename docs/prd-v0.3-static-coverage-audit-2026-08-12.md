@@ -115,3 +115,18 @@ The workspace `AGENTS.md` requires proving the operational path first and postpo
 - Browser, API, DOCX and regression acceptance across the newly completed waves.
 
 These are not claimed complete by this audit.
+
+## Addendum — 2026-08-13 remediation pass
+
+The items above were closed in a follow-up source-level pass:
+
+- Approval now rejects unresolved review comments (`_require_no_open_comments` in `services/monitoring.py`).
+- Submitter/approver distinctness is enforced server-side (`_require_distinct_submitter`), compared by display name rather than `member_id` since project-member rows are role-scoped and would never collide even for the same real person under two roles.
+- The insecure self-service CRA handover endpoint was removed outright; only the administrator-authorized path (`create_administrator_visit_handover`) remains, now gated to `PROJECT_ADMIN` by `ActorAuthMiddleware`.
+- Generation/submission/approval accept an `idempotency_key`; submission also recomputes and compares a `confirmed_field_hash` captured at generation time and blocks on mismatch.
+- Break-glass is implemented (`services/break_glass.py`): request → business approval → security approval → time-boxed active grant, with a life-safety self-activation path that forces mandatory post-hoc dual review instead of skipping accountability. `ActorAuthMiddleware` consults it before letting a system administrator through to project-scoped content.
+- Offline drafts are AES-GCM encrypted at rest (`offlineDraftStorage.ts`), with a session-scoped key and an explicit controlled-clear action; attachments now go through extension/magic-byte/size checks, a direct-identifier text screen, and get a SHA-256 hash and scan status.
+- Project eligibility now actually blocks visit creation when missing or out of the local MVP boundary, instead of only being computed and silently attached when present.
+- **New**: full server-side role authorization (`backend/auth.py`) resolves a trusted `Actor` from `project_members`/`system_admins` rows (not a client-supplied free-text name) and enforces a PRD §13-derived role map across mutating endpoints — this did not exist before the remediation pass at all; every endpoint previously trusted whatever `actor_name` string the client sent.
+
+Still open, not covered by this pass: SSO/MFA, production WORM/hash-chain audit storage (audit_events remains a regular application-writable table — no code path currently modifies/deletes it, but there is no independent tamper-evidence mechanism), external-model deployment controls, "共享设备默认禁用离线能力" (no device-trust flag), and cross-project isolation for endpoints where `project_id` is only a body/query field rather than a path parameter (e.g. `POST /api/sites`). Browser/DOCX/regression acceptance (UAT-01–22) is still deferred until interaction confirmation, as before.
