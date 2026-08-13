@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from ..repositories.visits import (
@@ -39,11 +40,13 @@ def generate_revision(*, visit_id: str, created_by: str) -> dict[str, Any]:
     )
     version_number = str(draft_shell["version_number"]) if draft_shell else next_revision_number(visit_id)
     output_path = generate_report(workspace, revision_number=version_number)
+    file_hash = hashlib.sha256(output_path.read_bytes()).hexdigest()
     if draft_shell:
         revision = update_working_revision_file(
             revision_id=draft_shell["id"],
             file_name=output_path.name,
             file_path=str(output_path),
+            file_hash=file_hash,
         )
     else:
         parent_revision_id = latest_revision["id"] if latest_revision and latest_revision.get("status") in {"returned", "withdrawn"} else None
@@ -52,6 +55,7 @@ def generate_revision(*, visit_id: str, created_by: str) -> dict[str, Any]:
             version_number=version_number,
             file_name=output_path.name,
             file_path=str(output_path),
+            file_hash=file_hash,
             parent_revision_id=parent_revision_id,
         )
     create_audit_event(
@@ -64,6 +68,7 @@ def generate_revision(*, visit_id: str, created_by: str) -> dict[str, Any]:
         detail={
             "version_number": version_number,
             "file_name": output_path.name,
+            "file_hash": file_hash,
             "readiness": readiness["summary"],
             "parent_revision_id": revision.get("parent_revision_id") or "",
             "reused_working_draft": bool(draft_shell),

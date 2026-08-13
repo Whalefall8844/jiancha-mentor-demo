@@ -976,6 +976,7 @@ def create_report_revision(
     version_number: str | None = None,
     file_name: str = "",
     file_path: str = "",
+    file_hash: str = "",
     status: str = "draft",
     parent_revision_id: str | None = None,
     generated_at: str | None = None,
@@ -989,8 +990,8 @@ def create_report_revision(
             """
             INSERT INTO report_revisions (
                 id, visit_id, parent_revision_id, version_number, revision_type, status,
-                file_name, file_path, generated_at, created_at
-            ) VALUES (?, ?, ?, ?, 'working', ?, ?, ?, ?, ?)
+                file_name, file_path, file_hash, generated_at, created_at
+            ) VALUES (?, ?, ?, ?, 'working', ?, ?, ?, ?, ?, ?)
             """,
             (
                 revision_id,
@@ -1000,6 +1001,7 @@ def create_report_revision(
                 status,
                 file_name,
                 file_path,
+                file_hash,
                 generated_timestamp,
                 timestamp,
             ),
@@ -1007,16 +1009,16 @@ def create_report_revision(
     return get_revision(revision_id) or {}
 
 
-def update_working_revision_file(*, revision_id: str, file_name: str, file_path: str) -> dict[str, Any]:
+def update_working_revision_file(*, revision_id: str, file_name: str, file_path: str, file_hash: str = "") -> dict[str, Any]:
     timestamp = _now()
     with transaction() as connection:
         updated = connection.execute(
             """
             UPDATE report_revisions
-            SET file_name = ?, file_path = ?, generated_at = ?
+            SET file_name = ?, file_path = ?, file_hash = ?, generated_at = ?
             WHERE id = ? AND revision_type = 'working' AND status = 'draft'
             """,
-            (file_name, file_path, timestamp, revision_id),
+            (file_name, file_path, file_hash, timestamp, revision_id),
         ).rowcount
         if updated != 1:
             raise ValueError("当前工作修订不可写入报告文件")
@@ -1071,3 +1073,85 @@ def create_audit_event(*, project_id: str, visit_id: str | None, entity_type: st
             """,
             (uuid4().hex, project_id, visit_id, entity_type, entity_id, action, actor_name, json.dumps(detail or {}, ensure_ascii=False), _now()),
         )
+
+
+def create_export_event(
+    *,
+    project_id: str,
+    visit_id: str,
+    revision_id: str = "",
+    export_type: str,
+    file_name: str = "",
+    file_hash: str = "",
+    report_version: str = "",
+    exported_by_member_id: str = "",
+    exported_by_name: str,
+    purpose: str = "",
+) -> dict[str, Any]:
+    """PRD FR-12: 导出记录包含文件哈希、导出人、导出时间和报告版本."""
+    export_id = uuid4().hex
+    timestamp = _now()
+    with transaction() as connection:
+        connection.execute(
+            """
+            INSERT INTO export_events (
+                id, project_id, visit_id, revision_id, export_type, file_name, file_hash,
+                report_version, exported_by_member_id, exported_by_name, purpose, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                export_id,
+                project_id,
+                visit_id,
+                revision_id,
+                export_type,
+                file_name,
+                file_hash,
+                report_version,
+                exported_by_member_id,
+                exported_by_name,
+                purpose,
+                timestamp,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO audit_events (id, project_id, visit_id, entity_type, entity_id, action, actor_name, detail_json, created_at)
+            VALUES (?, ?, ?, 'export_event', ?, 'exported', ?, ?, ?)
+            """,
+            (
+                uuid4().hex,
+                project_id,
+                visit_id,
+                export_id,
+                exported_by_name,
+                json.dumps(
+                    {
+                        "export_type": export_type,
+                        "file_name": file_name,
+                        "file_hash": file_hash,
+                        "report_version": report_version,
+                        "revision_id": revision_id,
+                    },
+                    ensure_ascii=False,
+                ),
+                timestamp,
+            ),
+        )
+    return {
+        "id": export_id,
+        "export_type": export_type,
+        "file_name": file_name,
+        "file_hash": file_hash,
+        "report_version": report_version,
+        "created_at": timestamp,
+    }
+
+
+def list_export_events(visit_id: str) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        rows = connection.execute(
+            "SELECT * FROM export_events WHERE visit_id = ? ORDER BY created_at DESC",
+            (visit_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]

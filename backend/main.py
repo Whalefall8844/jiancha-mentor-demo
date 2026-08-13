@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -124,6 +125,7 @@ from .repositories.controlled_data import (
 )
 from .repositories.visits import (
     create_visit,
+    create_export_event,
     get_revision,
     get_project_history_insights,
     get_visit,
@@ -1658,9 +1660,18 @@ def get_visit_evidence_chain(visit_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/visits/{visit_id}/audit-export")
-def get_visit_audit_export(visit_id: str):
-    _workspace_or_404(visit_id)
+def get_visit_audit_export(visit_id: str, actor: Actor = Depends(get_actor)):
+    workspace = _workspace_or_404(visit_id)
     content, filename = export_audit_csv(visit_id=visit_id)
+    create_export_event(
+        project_id=workspace["visit"]["project_id"],
+        visit_id=visit_id,
+        export_type="audit_csv",
+        file_name=filename,
+        file_hash=hashlib.sha256(content.encode("utf-8") if isinstance(content, str) else content).hexdigest(),
+        exported_by_member_id=actor.member_id,
+        exported_by_name=actor.display_name,
+    )
     return Response(
         content=content,
         media_type="text/csv; charset=utf-8",
@@ -1791,11 +1802,23 @@ def post_visit_revision(visit_id: str, payload: ReportGenerateRequest) -> dict[s
 
 
 @app.get("/api/revisions/{revision_id}/download")
-def get_revision_download(revision_id: str):
+def get_revision_download(revision_id: str, actor: Actor = Depends(get_actor)):
     revision = _revision_or_404(revision_id)
     report_file = Path(revision["file_path"])
     if not report_file.exists():
         raise HTTPException(status_code=404, detail="未找到已生成的 Word 文件")
+    workspace = _workspace_or_404(revision["visit_id"])
+    create_export_event(
+        project_id=workspace["visit"]["project_id"],
+        visit_id=revision["visit_id"],
+        revision_id=revision_id,
+        export_type="report_docx",
+        file_name=revision["file_name"],
+        file_hash=revision.get("file_hash") or "",
+        report_version=revision["version_number"],
+        exported_by_member_id=actor.member_id,
+        exported_by_name=actor.display_name,
+    )
     return FileResponse(
         path=report_file,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -1804,12 +1827,24 @@ def get_revision_download(revision_id: str):
 
 
 @app.get("/api/revisions/{revision_id}/handover-package")
-def get_revision_handover_package(revision_id: str):
-    _revision_or_404(revision_id)
+def get_revision_handover_package(revision_id: str, actor: Actor = Depends(get_actor)):
+    revision = _revision_or_404(revision_id)
     try:
         content, filename = build_handover_package(revision_id=revision_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    workspace = _workspace_or_404(revision["visit_id"])
+    create_export_event(
+        project_id=workspace["visit"]["project_id"],
+        visit_id=revision["visit_id"],
+        revision_id=revision_id,
+        export_type="handover_package",
+        file_name=filename,
+        file_hash=hashlib.sha256(content).hexdigest(),
+        report_version=revision["version_number"],
+        exported_by_member_id=actor.member_id,
+        exported_by_name=actor.display_name,
+    )
     return Response(
         content=content,
         media_type="application/zip",
